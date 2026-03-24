@@ -110,7 +110,7 @@ export default function App() {
 
       const a = document.createElement("a");
       a.href = url;
-      a.download = "api_debug_report.html";
+      a.download = "api-test-results.zip";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
