@@ -1,0 +1,8 @@
+﻿Work Item Type,Title,Assigned To,State,Tags,Repro Steps,Modules,Ticket Classification,Severity
+Bug,Error when attaching Video file,Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Disability Management; Incident Management; Production,"Business users have reported an error message when trying to upload video file (MP4) to the attachments in both incident and disability management portals. 
+Steps
+Open disability management portal and select a file
+Navigate to attachment and upload a video file  
+Error message is displayed - ""File type not supported""
+ ",Incident,Bug,3 - Medium
+Bug,Speech to text is not working correctly,Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Production,"Speech to text function does not work as intended. Reports of capturing a single word instead of a sentence, for example. ",Incident,Bug,3 - Medium

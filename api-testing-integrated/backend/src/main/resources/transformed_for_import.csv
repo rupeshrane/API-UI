@@ -1,0 +1,27 @@
+﻿Work Item Type,Title,Assigned To,State,Tags,Repro Steps,Modules,Ticket Classification,Severity
+Bug,Operations IM- Report is currently pulling duplicate rows,Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Enhancement; Production; Reports,"• Operations IM- Report is currently pulling duplicate rows 
+ • -When more than one H&S member is listed in the investigation team, it defaults as blank in the report. 
+ 
+ • Date investigation Completed by CW Manager is not working in all cases. Refer to INC-2025-00008. Completed by H&S team on Apr 4/25 and signed off by CW Manager on Apr 7 but not reflected in report.",Incident,Bug,3 - Medium
+Bug,DM- Chronological order of notes,Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Disability Management; Production,"DMP - Notes - Order of notes 
+Notes added on the same day are appearing below the previously entered note (same day) instead of above (in chronological order). Is it possible due to the system sorting by date rather than by date and time?",Incident,Bug,3 - Medium
+Bug,"GRTW template submitted, but no link available to view template.",Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Disability Management; Production,"GRTW Tab - GRTW template submitted, but no link available to view template. Unsure if it was sent out. Summary tab does show it was created. The link is missing in the plan column as highlighted below and the user also confirmed that no email was sent to the intended recipient of the GRTW plan. Some examples are DSM-2024-05313 and DSM-2025-06119",Incident,Bug,3 - Medium
+Bug,Data migration issue in the comments field,Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Disability Management; Production,"Tania and I realized there may be an issue with a small portion of data that was migrated over. In the Domino database, there are 2 fields where comments can be added. We have realized if there was data entered in the bottom section, it has not been migrated over to myCW. Here is an example on DSM-2024-02133: 
+ 
+ 
+ 
+ Legacy database: 
+ 
+ Migrated data in myCW:",Incident,Bug,3 - Medium
+Bug,Modification of the radio button to ensure that users read the instructions,Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Disability Management; Hypercare; Incident Management; Production,"The radio button in the ""Are you reporting on behalf of yourself or someone else?"" window is currently defaulted to No. This has resulted in some users not reading the instructions and complete their personal details instead of a third party when reporting for someone else.",Incident,Bug,3 - Medium
+Bug,Investigate options for Monthly report Column 3 clarity,Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Production; Reports,Investigate if there is a way to identify which files were recategorized.,Incident,Bug,3 - Medium
+Bug,Additional Information to Corrective Actions Notification.,Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Production; Release 2; Workplace Evaluation,"The team would like to make some changes and add some additional information to the email notification for corrective actions. The additional information is: 
+ 
+**As part of the WCB Workplace Evaluation Process, the following Action Item has been assigned to you for CA ID -> 82.** 
+**Please click on the myCW link and follow the steps below to access the action item. (Provide Link)** 
+ • **Open the Evaluations Tile** 
+ • **Select the Evaluation Number** 
+ • **Select the Corrective Actions Tab** 
+ • **Select the CA ID number and update the action item.**",Incident,Bug,3 - Medium
+Bug,"Changes in the ""File No"" and ""Reported by"" search fields in IM and DM portals",Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Disability Management; Incident Management; Production,"The users would like to have the ""File No"" and ""Reported by"" search fields returned to the previous search type where a user can type words directly in the search field rather than having a new pop-up search field.",Incident,Bug,3 - Medium
+Bug,Save as Draft Failure in Ergonomics Portal,Abhishek Singh <abhishek.s@sodalessolutions.com>,New,Disability Management; Production,"The business users recently reported a series of failures in the save as draft functionality in the Ergonomics portal. The user lost their assessments even though they click on the ""Save as draft button"" repeatedly",Incident,Bug,3 - Medium

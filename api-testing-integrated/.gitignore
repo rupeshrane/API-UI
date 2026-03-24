@@ -1,0 +1,11 @@
+# Backend
+target/
+*.jar
+
+# Frontend
+node_modules/
+dist/
+
+# Common
+.env
+*.log
