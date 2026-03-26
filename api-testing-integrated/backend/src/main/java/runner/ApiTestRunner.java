@@ -16,6 +16,7 @@ import org.sodales.GlobalVariableHandler;
 import org.sodales.OAuth2Client;
 import org.sodales.PropertyLoader;
 import org.testng.Assert;
+import org.sodales.LogCollector;
 
 
 public class ApiTestRunner extends OAuth2Client {
@@ -44,15 +45,26 @@ private static String getExtentHtmlFile() {
             HttpClient client = HttpClient.newHttpClient();
             // Prepare URI and method
             URI uri = URI.create(test.url);
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                    .uri(uri)
-                    .method(test.method.toUpperCase(),
-                            (test.method.equalsIgnoreCase("POST") || test.method.equalsIgnoreCase("PUT") || test.method.equalsIgnoreCase("DELETE"))
-                                    ? HttpRequest.BodyPublishers.ofString(variableHandler.globalvariablevaluereplacer(test.payload))
-                                    : HttpRequest.BodyPublishers.noBody());
+HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+        .uri(uri)
+        .method(test.method.toUpperCase(),
+                (test.method.equalsIgnoreCase("POST")
+                        || test.method.equalsIgnoreCase("PUT")
+                        || test.method.equalsIgnoreCase("DELETE"))
+                        ? (test.filePath != null && !test.filePath.trim().isEmpty()
+                            ? HttpRequest.BodyPublishers.ofFile(
+                                java.nio.file.Path.of(
+                                    variableHandler.globalvariablevaluereplacer(test.filePath)
+                                )
+                              )
+                            : HttpRequest.BodyPublishers.ofString(
+                                variableHandler.globalvariablevaluereplacer(test.payload)
+                              ))
+                        : HttpRequest.BodyPublishers.noBody()
+        );
             if (PropertyLoader.loadProperties("Authentication_Type").equalsIgnoreCase("OAUTH")) {
                 if (accessToken == null || Instant.now().isAfter(tokenExpiry)) {
-                    System.out.println("Access token missing or expired. Fetching a new one...");
+                    org.sodales.LogCollector.log("Access token missing or expired. Fetching a new one...");
                     getAccessToken();
                 }
                 System.setProperty("Authorization", "Bearer " + accessToken);

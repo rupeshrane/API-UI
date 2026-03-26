@@ -3,6 +3,7 @@ package org.sodales;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -15,6 +16,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Base64;
+import java.util.List;
 import java.util.Properties;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -50,12 +52,21 @@ public class ApiController {
             @RequestParam(required = false) String grantType
     ) {
         try {
+            LogCollector.clear();
+            LogCollector.log("=== /run-tests called ===");
+            LogCollector.log("Authentication Type: " + authType);
+            LogCollector.log("Uploaded File: " + (file != null ? file.getOriginalFilename() : "null"));
+
             File tempFolder = new File(TEMP_DIR);
             if (!tempFolder.exists()) {
                 tempFolder.mkdirs();
+                LogCollector.log("Temp directory created: " + TEMP_DIR);
+            } else {
+                LogCollector.log("Using temp directory: " + TEMP_DIR);
             }
 
             if (file == null || file.isEmpty()) {
+                LogCollector.log("Excel file is missing.");
                 return ResponseEntity.badRequest()
                         .body("Excel file is required".getBytes());
             }
@@ -65,23 +76,30 @@ public class ApiController {
                     : file.getOriginalFilename().toLowerCase();
 
             if (!lowerName.endsWith(".xlsx") && !lowerName.endsWith(".xls")) {
+                LogCollector.log("Invalid file type uploaded.");
                 return ResponseEntity.badRequest()
                         .body("Only Excel files are allowed".getBytes());
             }
 
+            LogCollector.log("Validating authentication inputs...");
             validateAuthInputs(authType, username, password, clientId, clientSecret, tokenUrl);
 
+            LogCollector.log("Saving Excel to: " + EXCEL_TARGET);
             file.transferTo(new File(EXCEL_TARGET));
 
+            LogCollector.log("Clearing old reports...");
             clearOldReports();
 
+            LogCollector.log("Updating framework.properties...");
             updateProperties(authType, username, password, clientId, clientSecret, tokenUrl, grantType);
 
+            LogCollector.log("Setting dynamic runtime paths...");
             ApiTests.setExcelPath(EXCEL_TARGET);
             ApiTestRunnerPaths.setHtmlReportPath(HTML_REPORT);
             ApiTestRunnerPaths.setCsvReportPath(CSV_REPORT);
             ApiTestRunnerPaths.setExtentHtmlReportPath(EXTENT_HTML_REPORT);
 
+            LogCollector.log("Starting API test execution...");
             ApiTests.main(null);
 
             File htmlReportFile = new File(HTML_REPORT);
@@ -89,10 +107,12 @@ public class ApiController {
             File extentHtmlReportFile = new File(EXTENT_HTML_REPORT);
 
             if (!htmlReportFile.exists() && !csvReportFile.exists() && !extentHtmlReportFile.exists()) {
+                LogCollector.log("Report files are not generated.");
                 return ResponseEntity.internalServerError()
                         .body("Report files are not generated".getBytes());
             }
 
+            LogCollector.log("Preparing ZIP download...");
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             ZipOutputStream zipOut = new ZipOutputStream(baos);
 
@@ -102,6 +122,8 @@ public class ApiController {
 
             zipOut.close();
 
+            LogCollector.log("Execution completed. Report downloaded.");
+
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=api-test-results.zip")
                     .header(HttpHeaders.CONTENT_TYPE, "application/zip")
@@ -109,9 +131,15 @@ public class ApiController {
 
         } catch (Exception e) {
             e.printStackTrace();
+            LogCollector.log("Execution failed: " + e.getMessage());
             return ResponseEntity.internalServerError()
                     .body(("Error: " + e.getClass().getName() + " - " + e.getMessage()).getBytes());
         }
+    }
+
+    @GetMapping("/logs")
+    public ResponseEntity<List<String>> getLogs() {
+        return ResponseEntity.ok(LogCollector.getLogs());
     }
 
     private void validateAuthInputs(String authType,
