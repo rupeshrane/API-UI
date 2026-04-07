@@ -1,5 +1,7 @@
 package org.sodales;
 
+import model.AuthContext;
+import model.TestRunContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -12,12 +14,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Base64;
 import java.util.List;
-import java.util.Properties;
+import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -25,20 +26,8 @@ import java.util.zip.ZipOutputStream;
 @CrossOrigin("*")
 public class ApiController {
 
-    private static final String TEMP_DIR =
+    private static final String BASE_TEMP_DIR =
             System.getProperty("java.io.tmpdir") + File.separator + "api-testing";
-
-    private static final String EXCEL_TARGET =
-            TEMP_DIR + File.separator + "api_test_data.xlsx";
-
-    private static final String HTML_REPORT =
-            TEMP_DIR + File.separator + "api_debug_report.html";
-
-    private static final String EXTENT_HTML_REPORT =
-            TEMP_DIR + File.separator + "api_extent_debug_report.html";
-
-    private static final String CSV_REPORT =
-            TEMP_DIR + File.separator + "api_debug_report.csv";
 
     @PostMapping("/run-tests")
     public ResponseEntity<byte[]> runTests(
@@ -52,18 +41,18 @@ public class ApiController {
             @RequestParam(required = false) String grantType
     ) {
         try {
+            cleanupOldRuns(); // added for cleanup of old reports
+            TestRunContext context = createRunContext();
+            AuthContext authContext = buildAuthContext(
+                    authType, username, password, clientId, clientSecret, tokenUrl, grantType
+            );
+
             LogCollector.clear();
             LogCollector.log("=== /run-tests called ===");
+            LogCollector.log("Run ID: " + context.runId);
             LogCollector.log("Authentication Type: " + authType);
             LogCollector.log("Uploaded File: " + (file != null ? file.getOriginalFilename() : "null"));
-
-            File tempFolder = new File(TEMP_DIR);
-            if (!tempFolder.exists()) {
-                tempFolder.mkdirs();
-                LogCollector.log("Temp directory created: " + TEMP_DIR);
-            } else {
-                LogCollector.log("Using temp directory: " + TEMP_DIR);
-            }
+            LogCollector.log("Run directory: " + context.runDir);
 
             if (file == null || file.isEmpty()) {
                 LogCollector.log("Excel file is missing.");
@@ -84,27 +73,16 @@ public class ApiController {
             LogCollector.log("Validating authentication inputs...");
             validateAuthInputs(authType, username, password, clientId, clientSecret, tokenUrl);
 
-            LogCollector.log("Saving Excel to: " + EXCEL_TARGET);
-            file.transferTo(new File(EXCEL_TARGET));
-
-            LogCollector.log("Clearing old reports...");
-            clearOldReports();
-
-            LogCollector.log("Updating framework.properties...");
-            updateProperties(authType, username, password, clientId, clientSecret, tokenUrl, grantType);
-
-            LogCollector.log("Setting dynamic runtime paths...");
-            ApiTests.setExcelPath(EXCEL_TARGET);
-            ApiTestRunnerPaths.setHtmlReportPath(HTML_REPORT);
-            ApiTestRunnerPaths.setCsvReportPath(CSV_REPORT);
-            ApiTestRunnerPaths.setExtentHtmlReportPath(EXTENT_HTML_REPORT);
+            LogCollector.log("Saving Excel to: " + context.excelPath);
+            file.transferTo(new File(context.excelPath));
 
             LogCollector.log("Starting API test execution...");
-            ApiTests.main(null);
+            ApiTests.run(context, authContext);
 
-            File htmlReportFile = new File(HTML_REPORT);
-            File csvReportFile = new File(CSV_REPORT);
-            File extentHtmlReportFile = new File(EXTENT_HTML_REPORT);
+            File htmlReportFile = new File(context.htmlPath);
+            File csvReportFile = new File(context.csvPath);
+            File extentHtmlReportFile = new File(context.extentPath);
+            File logFile = new File(context.logPath);
 
             if (!htmlReportFile.exists() && !csvReportFile.exists() && !extentHtmlReportFile.exists()) {
                 LogCollector.log("Report files are not generated.");
@@ -119,13 +97,14 @@ public class ApiController {
             addFileToZip(zipOut, htmlReportFile, "api_debug_report.html");
             addFileToZip(zipOut, csvReportFile, "api_debug_report.csv");
             addFileToZip(zipOut, extentHtmlReportFile, "api_extent_debug_report.html");
+            addFileToZip(zipOut, logFile, "api_debug_report.log");
 
             zipOut.close();
 
             LogCollector.log("Execution completed. Report downloaded.");
 
             return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=api-test-results.zip")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + context.runId + "_api-test-results.zip")
                     .header(HttpHeaders.CONTENT_TYPE, "application/zip")
                     .body(baos.toByteArray());
 
@@ -140,6 +119,62 @@ public class ApiController {
     @GetMapping("/logs")
     public ResponseEntity<List<String>> getLogs() {
         return ResponseEntity.ok(LogCollector.getLogs());
+    }
+
+    private TestRunContext createRunContext() throws IOException {
+        String runId = "run_" + System.currentTimeMillis() + "_" + UUID.randomUUID();
+        String runDir = BASE_TEMP_DIR + File.separator + runId;
+
+        File runFolder = new File(runDir);
+        if (!runFolder.exists()) {
+            runFolder.mkdirs();
+        }
+
+        TestRunContext context = new TestRunContext();
+        context.runId = runId;
+        context.runDir = runDir;
+        context.excelPath = runDir + File.separator + "api_test_data.xlsx";
+        context.htmlPath = runDir + File.separator + "api_debug_report.html";
+        context.extentPath = runDir + File.separator + "api_extent_debug_report.html";
+        context.csvPath = runDir + File.separator + "api_debug_report.csv";
+        context.logPath = runDir + File.separator + "api_debug_report.log";
+
+        return context;
+    }
+
+    private AuthContext buildAuthContext(String authType,
+                                         String username,
+                                         String password,
+                                         String clientId,
+                                         String clientSecret,
+                                         String tokenUrl,
+                                         String grantType) {
+
+        AuthContext authContext = new AuthContext();
+        authContext.authenticationType = authType;
+
+        if ("BASIC".equalsIgnoreCase(authType)) {
+            String encoded = Base64.getEncoder()
+                    .encodeToString((safeValue(username) + ":" + safeValue(password)).getBytes());
+
+            authContext.authorizationHeader = "Basic " + encoded;
+            authContext.tokenUrl = safeValue(tokenUrl);
+            authContext.clientId = safeValue(username);
+            authContext.clientSecret = safeValue(password);
+            authContext.grantType = safeValue(grantType);
+
+        } else {
+            String encoded = Base64.getEncoder()
+                    .encodeToString((safeValue(clientId) + ":" + safeValue(clientSecret)).getBytes());
+
+            authContext.authorizationHeader = "Basic " + encoded;
+            authContext.tokenUrl = safeValue(tokenUrl);
+            authContext.clientId = safeValue(clientId);
+            authContext.clientSecret = safeValue(clientSecret);
+            authContext.grantType = isBlank(grantType) ? "client_credentials" : grantType;
+        }
+
+        return authContext;
     }
 
     private void validateAuthInputs(String authType,
@@ -162,62 +197,6 @@ public class ApiController {
         }
     }
 
-    private void updateProperties(String authType,
-                                  String username,
-                                  String password,
-                                  String clientId,
-                                  String clientSecret,
-                                  String tokenUrl,
-                                  String grantType) throws Exception {
-
-        Properties props = new Properties();
-        File propertiesFile = new File("src/main/resources/framework.properties");
-
-        try (FileInputStream fis = new FileInputStream(propertiesFile)) {
-            props.load(fis);
-        }
-
-        if ("BASIC".equalsIgnoreCase(authType)) {
-            String encoded = Base64.getEncoder()
-                    .encodeToString((username + ":" + password).getBytes());
-
-            props.setProperty("Authentication_Type", "BASIC");
-            props.setProperty("Authorization", "Basic " + encoded);
-            props.setProperty("TOKEN_URL", tokenUrl == null ? "" : tokenUrl);
-            props.setProperty("CLIENT_ID", username);
-            props.setProperty("CLIENT_SECRET", password);
-            props.setProperty("GRANT_TYPE", grantType == null ? "" : grantType);
-
-        } else {
-            String encoded = Base64.getEncoder()
-                    .encodeToString((clientId + ":" + clientSecret).getBytes());
-
-            props.setProperty("Authentication_Type", "OAUTH");
-            props.setProperty("Authorization", "Basic " + encoded);
-            props.setProperty("TOKEN_URL", tokenUrl);
-            props.setProperty("CLIENT_ID", clientId);
-            props.setProperty("CLIENT_SECRET", clientSecret);
-            props.setProperty("GRANT_TYPE", isBlank(grantType) ? "client_credentials" : grantType);
-        }
-
-        try (FileOutputStream fos = new FileOutputStream(propertiesFile)) {
-            props.store(fos, "Updated dynamically from UI");
-        }
-    }
-
-    private void clearOldReports() {
-        deleteIfExists(HTML_REPORT);
-        deleteIfExists(CSV_REPORT);
-        deleteIfExists(EXTENT_HTML_REPORT);
-    }
-
-    private void deleteIfExists(String filePath) {
-        File file = new File(filePath);
-        if (file.exists()) {
-            file.delete();
-        }
-    }
-
     private void addFileToZip(ZipOutputStream zipOut, File file, String fileName) throws IOException {
         if (file != null && file.exists()) {
             try (FileInputStream fis = new FileInputStream(file)) {
@@ -235,4 +214,39 @@ public class ApiController {
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
     }
+
+    private String safeValue(String value) {
+        return value == null ? "" : value;
+    }
+
+    // Added this part for cleanup of old reports 
+    private void cleanupOldRuns() {
+    File baseDir = new File(BASE_TEMP_DIR);
+    if (!baseDir.exists()) return;
+
+    File[] files = baseDir.listFiles();
+    if (files == null) return;
+
+    long cutoff = System.currentTimeMillis() - (24 * 60 * 60 * 1000);
+
+    for (File file : files) {
+        if (file.isDirectory() && file.lastModified() < cutoff) {
+            deleteDirectory(file);
+        }
+    }
+}
+
+private void deleteDirectory(File dir) {
+    File[] files = dir.listFiles();
+    if (files != null) {
+        for (File f : files) {
+            if (f.isDirectory()) {
+                deleteDirectory(f);
+            } else {
+                f.delete();
+            }
+        }
+    }
+    dir.delete();
+}
 }

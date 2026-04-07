@@ -1,6 +1,8 @@
 package org.sodales;
 
 import model.ApiTestCase;
+import model.AuthContext;
+import model.TestRunContext;
 import reader.ExcelReader;
 import runner.ApiTestRunner;
 
@@ -9,33 +11,23 @@ import java.util.List;
 
 public class ApiTests {
 
-    private static String excelPath = "src/main/resources/api_test_data.xlsx";
-
-    public static void setExcelPath(String path) {
-        if (path != null && !path.isBlank()) {
-            excelPath = path;
-        }
-    }
-
-    public static String getExcelPath() {
-        return excelPath;
-    }
-
-    public static void main(String[] args) {
+    public static void run(TestRunContext context, AuthContext authContext) {
         LocalDateTime testcaseexecutionstarttime = LocalDateTime.now();
 
-        List<ApiTestCase> tests = ExcelReader.readTestCases(excelPath);
+        GlobalVariableHandler variableHandler = new GlobalVariableHandler();
+        List<ApiTestCase> tests = ExcelReader.readTestCases(context.excelPath);
 
         System.out.println("Execution of the Test cases has been started..");
         System.out.println("Execution Start time: " + testcaseexecutionstarttime);
-        System.out.println("Using Excel file: " + excelPath);
+        System.out.println("Using Excel file: " + context.excelPath);
+        System.out.println("Run ID: " + context.runId);
 
         for (ApiTestCase test : tests) {
-            if (test.skip.equalsIgnoreCase("yes")) {
-                System.out.println("skipping the test " + test.testName);
+            if (test.skip != null && test.skip.equalsIgnoreCase("yes")) {
+                System.out.println("Skipping the test " + test.testName);
             } else {
                 System.out.println("Currently Executing: " + test.testName);
-                ApiTestRunner.run(test);
+                ApiTestRunner.run(test, context, variableHandler, authContext);
             }
         }
 

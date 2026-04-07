@@ -5,6 +5,8 @@ import com.aventstack.extentreports.ExtentTest;
 import com.aventstack.extentreports.reporter.ExtentSparkReporter;
 import com.opencsv.CSVWriter;
 import model.ApiTestCase;
+import model.AuthContext;
+import model.TestRunContext;
 
 import java.io.*;
 import java.net.URI;
@@ -14,60 +16,46 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 import org.sodales.GlobalVariableHandler;
 import org.sodales.OAuth2Client;
-import org.sodales.PropertyLoader;
 import org.testng.Assert;
 
-public class ApiTestRunner extends OAuth2Client {
+public class ApiTestRunner {
 
-    private static String getCsvFile() {
-        return org.sodales.ApiTestRunnerPaths.getCsvReportPath();
-    }
-
-    private static String getHtmlFile() {
-        return org.sodales.ApiTestRunnerPaths.getHtmlReportPath();
-    }
-
-    private static String getExtentHtmlFile() {
-        return org.sodales.ApiTestRunnerPaths.getExtentHtmlReportPath();
-    }
-
-    private static boolean htmlHeaderWritten = false;
-    static ExtentReports extent = new ExtentReports();
-    static Boolean responseflag;
-    static Boolean codeflag;
-    static GlobalVariableHandler variableHandler = new GlobalVariableHandler();
-
-    public static void run(ApiTestCase test) {
+    public static void run(ApiTestCase test,
+                           TestRunContext context,
+                           GlobalVariableHandler variableHandler,
+                           AuthContext authContext) {
         PrintStream originalOut = System.out;
 
         try {
             validateTestCase(test);
 
             HttpClient client = HttpClient.newHttpClient();
-            URI uri = URI.create(variableHandler.globalvariablevaluereplacer(test.url));
+            URI uri = URI.create(variableHandler.globalvariablevaluereplacer(safeValue(test.url)));
 
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().uri(uri);
 
             // Authentication
-            if (PropertyLoader.loadProperties("Authentication_Type").equalsIgnoreCase("OAUTH")) {
-                if (accessToken == null || Instant.now().isAfter(tokenExpiry)) {
+            if ("OAUTH".equalsIgnoreCase(safeValue(authContext.authenticationType))
+                    || "OAUTH2".equalsIgnoreCase(safeValue(authContext.authenticationType))) {
+
+                if (OAuth2Client.isTokenMissingOrExpired(authContext)) {
                     org.sodales.LogCollector.log("Access token missing or expired. Fetching a new one...");
-                    getAccessToken();
+                    OAuth2Client.getAccessToken(authContext);
                 }
-                System.setProperty("Authorization", "Bearer " + accessToken);
-                requestBuilder.header("Authorization", System.getProperty("Authorization"));
+
+                requestBuilder.header("Authorization", "Bearer " + authContext.accessToken);
+
             } else {
-                requestBuilder.header("Authorization", PropertyLoader.loadProperties("Authorization"));
+                requestBuilder.header("Authorization", safeValue(authContext.authorizationHeader));
             }
 
-            // Set headers from Excel
+            // Headers from Excel
             if (test.headers != null && !test.headers.trim().isEmpty()) {
                 for (String h : test.headers.split(";")) {
                     String[] kv = h.split(":", 2);
@@ -80,10 +68,12 @@ public class ApiTestRunner extends OAuth2Client {
                 }
             }
 
-            // Build body dynamically
-            HttpRequest.BodyPublisher bodyPublisher = buildBodyPublisher(test, requestBuilder);
+            HttpRequest.BodyPublisher bodyPublisher = buildBodyPublisher(test, requestBuilder, variableHandler);
 
-            String method = test.method == null ? "GET" : test.method.trim().toUpperCase();
+            String method = safeValue(test.method).trim().toUpperCase();
+            if (method.isEmpty()) {
+                method = "GET";
+            }
 
             switch (method) {
                 case "POST":
@@ -108,16 +98,13 @@ public class ApiTestRunner extends OAuth2Client {
             HttpRequest request = requestBuilder.build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-            // Handle 401
-            if (response.statusCode() == 401) {
+            if (response.statusCode() == 401 &&
+                    ("OAUTH".equalsIgnoreCase(safeValue(authContext.authenticationType))
+                            || "OAUTH2".equalsIgnoreCase(safeValue(authContext.authenticationType)))) {
+
                 System.out.println("Access token expired, attempting refresh...");
-                if (refreshToken != null) {
-                    refreshAccessToken();
-                } else {
-                    System.out.println("No refresh token found. Requesting new access token...");
-                    getAccessToken();
-                }
-                run(test);
+                OAuth2Client.refreshAccessToken(authContext);
+                run(test, context, variableHandler, authContext);
                 return;
             }
 
@@ -132,10 +119,11 @@ public class ApiTestRunner extends OAuth2Client {
             );
 
             PrintStream out = new PrintStream(
-                    new FileOutputStream("src/main/resources/api_debug_report.log", true), true
+                    new FileOutputStream(context.logPath, true), true
             );
             System.setOut(out);
 
+            System.out.println("Run ID: " + context.runId);
             System.out.println("==> " + test.testName);
             System.out.println("Method: " + method);
             System.out.println("URL: " + test.url);
@@ -147,6 +135,7 @@ public class ApiTestRunner extends OAuth2Client {
             System.out.println("----------------------------------");
 
             writeToCSV(
+                    context.csvPath,
                     test.url,
                     safeValue(test.headers),
                     safeValue(test.expectedStatus).trim(),
@@ -156,6 +145,7 @@ public class ApiTestRunner extends OAuth2Client {
             );
 
             writeToHTML(
+                    context.htmlPath,
                     test.testName,
                     test.url,
                     safeValue(test.headers),
@@ -166,6 +156,7 @@ public class ApiTestRunner extends OAuth2Client {
             );
 
             extendReport(
+                    context.extentPath,
                     test.testName,
                     test.url,
                     safeValue(test.headers),
@@ -188,7 +179,7 @@ public class ApiTestRunner extends OAuth2Client {
         String method = safeValue(test.method).trim().toUpperCase();
         String bodyType = safeValue(test.bodyType).trim().toUpperCase();
 
-        if (test.url == null || test.url.trim().isEmpty()) {
+        if (safeValue(test.url).isEmpty()) {
             throw new IllegalArgumentException("URL is missing for test: " + safeValue(test.testName));
         }
 
@@ -215,7 +206,11 @@ public class ApiTestRunner extends OAuth2Client {
         }
     }
 
-    private static HttpRequest.BodyPublisher buildBodyPublisher(ApiTestCase test, HttpRequest.Builder requestBuilder) throws Exception {
+    private static HttpRequest.BodyPublisher buildBodyPublisher(
+            ApiTestCase test,
+            HttpRequest.Builder requestBuilder,
+            GlobalVariableHandler variableHandler
+    ) throws Exception {
         String bodyType = safeValue(test.bodyType).trim().toUpperCase();
 
         switch (bodyType) {
@@ -332,12 +327,19 @@ public class ApiTestRunner extends OAuth2Client {
         }
     }
 
-    private static void writeToCSV(String requestUrl, String requestHeaders, String expectedresponsecode,
-                                   int responseCode, String expectedresponsebody, String responseBody) {
-        File file = new File(getCsvFile());
+    private static void writeToCSV(
+            String csvPath,
+            String requestUrl,
+            String requestHeaders,
+            String expectedresponsecode,
+            int responseCode,
+            String expectedresponsebody,
+            String responseBody
+    ) {
+        File file = new File(csvPath);
         boolean fileExists = file.exists();
 
-        try (CSVWriter writer = new CSVWriter(new FileWriter(getCsvFile(), true))) {
+        try (CSVWriter writer = new CSVWriter(new FileWriter(csvPath, true))) {
             if (!fileExists) {
                 writer.writeNext(new String[]{
                         "Request URL",
@@ -361,11 +363,20 @@ public class ApiTestRunner extends OAuth2Client {
         }
     }
 
-    private static void writeToHTML(String testName, String requestUrl, String requestHeaders,
-                                    String expectedresponsecode, int responseCode,
-                                    String expectedresponsebody, String responseBody) {
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(getHtmlFile(), true))) {
-            if (!htmlHeaderWritten) {
+    private static void writeToHTML(
+            String htmlPath,
+            String testName,
+            String requestUrl,
+            String requestHeaders,
+            String expectedresponsecode,
+            int responseCode,
+            String expectedresponsebody,
+            String responseBody
+    ) {
+        File htmlFile = new File(htmlPath);
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(htmlPath, true))) {
+            if (!htmlFile.exists() || htmlFile.length() == 0) {
                 writer.write(
                         "<html><head><style>" +
                                 "body { font-family: Arial; padding: 20px; }" +
@@ -374,26 +385,7 @@ public class ApiTestRunner extends OAuth2Client {
                                 "th { background-color: #f2f2f2; }" +
                                 ".pass { background-color: #d4edda; }" +
                                 ".fail { background-color: #f8d7da; }" +
-                                ".short-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: block; }" +
-                                ".full-text { display: none; white-space: normal; }" +
-                                ".toggle-link { color: blue; cursor: pointer; display: inline-block; margin-top: 5px; font-size: 12px; }" +
-                                "</style>" +
-                                "<script>" +
-                                "function toggleText(id) {" +
-                                "  var shortText = document.getElementById('short_' + id);" +
-                                "  var fullText = document.getElementById('full_' + id);" +
-                                "  var toggleLink = document.getElementById('toggle_' + id);" +
-                                "  if (shortText.style.display !== 'none') {" +
-                                "    shortText.style.display = 'none';" +
-                                "    fullText.style.display = 'block';" +
-                                "    toggleLink.innerText = 'less';" +
-                                "  } else {" +
-                                "    shortText.style.display = 'block';" +
-                                "    fullText.style.display = 'none';" +
-                                "    toggleLink.innerText = 'more';" +
-                                "  }" +
-                                "}" +
-                                "</script></head><body>" +
+                                "</style></head><body>" +
                                 "<h2>API Debug Report</h2><table>"
                 );
                 writer.write(
@@ -407,12 +399,9 @@ public class ApiTestRunner extends OAuth2Client {
                                 "<th>Actual Response Body</th>" +
                                 "</tr>"
                 );
-                htmlHeaderWritten = true;
             }
 
             String status;
-            String rowClass;
-
             if (!"NA".equalsIgnoreCase(expectedresponsebody)) {
                 status = ((responseCode == Integer.parseInt(expectedresponsecode))
                         && responseBody.contains(expectedresponsebody)) ? "PASS" : "FAIL";
@@ -420,7 +409,7 @@ public class ApiTestRunner extends OAuth2Client {
                 status = (responseCode == Integer.parseInt(expectedresponsecode)) ? "PASS" : "FAIL";
             }
 
-            rowClass = status.equals("PASS") ? "pass" : "fail";
+            String rowClass = status.equals("PASS") ? "pass" : "fail";
 
             writer.write("<tr class='" + rowClass + "'>");
             writer.write("<td>" + escapeHTML(testName) + "</td>");
@@ -437,19 +426,18 @@ public class ApiTestRunner extends OAuth2Client {
         }
     }
 
-    private static String escapeHTML(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
-    }
-
-    private static void extendReport(String testName, String requestUrl, String requestHeaders,
-                                     String expectedresponsecode, int responseCode,
-                                     String expectedresponsebody, String responseBody) {
-        ExtentSparkReporter spark = new ExtentSparkReporter(getExtentHtmlFile());
+    private static void extendReport(
+            String extentPath,
+            String testName,
+            String requestUrl,
+            String requestHeaders,
+            String expectedresponsecode,
+            int responseCode,
+            String expectedresponsebody,
+            String responseBody
+    ) {
+        ExtentReports extent = new ExtentReports();
+        ExtentSparkReporter spark = new ExtentSparkReporter(extentPath);
         extent.attachReporter(spark);
 
         ExtentTest test = extent.createTest(testName);
@@ -458,24 +446,19 @@ public class ApiTestRunner extends OAuth2Client {
         test.info(expectedresponsecode);
         test.info(expectedresponsebody);
 
-        if (responseCode == Integer.parseInt(expectedresponsecode)) {
+        boolean responseflag = responseCode == Integer.parseInt(expectedresponsecode);
+        boolean codeflag = expectedresponsebody.equalsIgnoreCase("NA") || responseBody.contains(expectedresponsebody);
+
+        if (responseflag) {
             test.info("Response code matching");
-            responseflag = true;
         } else {
             test.info("Response code not matching");
-            responseflag = false;
         }
 
-        if (expectedresponsebody.equalsIgnoreCase("NA")) {
-            codeflag = true;
+        if (codeflag) {
+            test.info("Response body matching");
         } else {
-            if (responseBody.contains(expectedresponsebody)) {
-                test.info("Response body matching");
-                codeflag = true;
-            } else {
-                test.info("Response body not matching");
-                codeflag = false;
-            }
+            test.info("Response body not matching");
         }
 
         if (responseflag && codeflag) {
@@ -486,6 +469,15 @@ public class ApiTestRunner extends OAuth2Client {
 
         test.info("Response Body").info(responseBody);
         extent.flush();
+    }
+
+    private static String escapeHTML(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
     }
 
     private static String safeValue(String value) {
