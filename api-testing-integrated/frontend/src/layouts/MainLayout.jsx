@@ -1,42 +1,47 @@
 import { NavLink, Outlet } from "react-router-dom";
+// import logo from "../assets/sodales-Logos_White.png";
 import "../styles/global.css";
 
 export default function MainLayout() {
   return (
     <div className="appShell">
-      <header className="topHeader">
-        <h1>QA Automation Dashboard</h1>
-        <p>Centralized workspace for API execution and future QA utilities</p>
-      </header>
+      <div className="navbar">
+        <div className="nav-left">
+          {/* <div className="header">
+            <img src={logo} alt="Logo" className="logo" />
+          </div> */}
+          <span className="nav-title">QA Utilities For Testing </span>
+        </div>
 
-      <nav className="mainNav">
-        <NavLink
-          to="/api-testing"
-          className={({ isActive }) =>
-            `navTab ${isActive ? "navTabActive" : ""}`
-          }
-        >
-          API Testing
-        </NavLink>
+        <nav className="nav-right">
+          <NavLink
+            to="/api-testing"
+            className={({ isActive }) =>
+              `navTab ${isActive ? "navTabActive" : ""}`
+            }
+          >
+            API Testing
+          </NavLink>
 
-        <NavLink
-          to="/reports"
-          className={({ isActive }) =>
-            `navTab ${isActive ? "navTabActive" : ""}`
-          }
-        >
-          Reports
-        </NavLink>
+          <NavLink
+            to="/future1"
+            className={({ isActive }) =>
+              `navTab ${isActive ? "navTabActive" : ""}`
+            }
+          >
+            Further Tab 1
+          </NavLink>
 
-        <NavLink
-          to="/settings"
-          className={({ isActive }) =>
-            `navTab ${isActive ? "navTabActive" : ""}`
-          }
-        >
-          Settings
-        </NavLink>
-      </nav>
+          <NavLink
+            to="/future2"
+            className={({ isActive }) =>
+              `navTab ${isActive ? "navTabActive" : ""}`
+            }
+          >
+            Further Tab 2
+          </NavLink>
+        </nav>
+      </div>
 
       <main className="mainContent">
         <Outlet />
